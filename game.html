@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hangman</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, sans-serif; background: #f1f5f9; color: #1e293b; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .game-card { background: #ffffff; border-radius: 24px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.05); width: 100%; max-width: 440px; padding: 32px 24px; display: flex; flex-direction: column; align-items: center; border: 1px solid #e2e8f0; }
+        .back-link { font-size: 14px; color: #64748b; text-decoration: none; font-weight: 500; margin-bottom: 24px; align-self: flex-start; }
+        .canvas-container { background: #f8fafc; border-radius: 16px; border: 2px solid #e2e8f0; padding: 16px; margin-bottom: 28px; width: 100%; max-width: 240px; display: flex; justify-content: center; transition: all 0.4s; }
+        .lost-border { border-color: #fca5a5 !important; background-color: #fef2f2 !important; }
+        .won-border { border-color: #86efac !important; background-color: #f0fdf4 !important; }
+        svg { width: 100%; height: auto; overflow: hidden; }
+        line, circle { stroke: #334155; stroke-width: 4.5; fill: none; stroke-linecap: round; transition: transform 3.0s cubic-bezier(0.25, 1, 0.5, 1), stroke 0.3s, opacity 4.5s; transform-origin: center; }
+        .word { font-size: clamp(24px, 8.5vw, 40px); letter-spacing: 0.25em; font-weight: 800; color: #0f172a; margin: 12px 0 20px 0; line-height: 1.2; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+        .msg { font-size: 18px; margin-bottom: 16px; font-weight: 700; min-height: 28px; }
+        .used-box { font-size: 14px; font-weight: 600; color: #64748b; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+        .action-btn { width: 100%; padding: 14px; font-size: 16px; background: #2563eb; color: #ffffff; border-radius: 12px; font-weight: 700; cursor: pointer; border: none; display: none; }
+        #stick-figure { transition: transform 0.5s; transform-origin: 70px 50px; }
+        @keyframes gentle-hop { 0%, 100% { transform: translateY(15px) scaleY(0.97); } 50% { transform: translateY(6px) scaleY(1.02); } }
+        .dancing #stick-figure { animation: gentle-hop 0.6s infinite ease-in-out; }
+    </style>
+</head>
+<body>
+    <div class="game-card">
+        <a href="javascript:history.back()" class="back-link">← Go Back</a>
+        <div id="canvasBox" class="canvas-container">
+            <svg id="gallowsSvg" width="200" height="200" viewBox="0 0 100 100">
+                <line id="g-base" x1="10" y1="90" x2="90" y2="90" /><line id="g-post" x1="30" y1="90" x2="30" y2="10" />
+                <line id="g-top"  x1="28" y1="10" x2="72" y2="10" /><line id="g-rope" x1="70" y1="10" x2="70" y2="25" style="stroke-width: 3;" />
+                <g id="stick-figure">
+                    <circle id="p1" cx="70" cy="32" r="7" /><line id="p2" x1="70" y1="39" x2="70" y2="60" />
+                    <line id="p3" x1="70" y1="45" x2="58" y2="52" /><line id="p4" x1="70" y1="45" x2="82" y2="52" />
+                    <line id="p5" x1="70" y1="60" x2="58" y2="75" /><line id="p6" x1="70" y1="60" x2="82" y2="75" />
+                </g>
+            </svg>
+        </div>
+        <div class="word" id="word"></div><div class="msg" id="msg"></div><div class="used-box" id="usedLetters"></div>
+        <button id="newGameBtn" class="action-btn" onclick="start()">New Game</button>
+    </div>
+<script>
+    const pool = ["ACTION", "ANIMAL", "APPLE", "BEACH", "BICYCLE", "BRIDGE", "CAMERA", "CANDY", "CASTLE", "CHAIR", "DANCE", "DESIGN", "DIGITAL", "DINNER", "DOCTOR", "EARTH", "ENERGY", "ENGINE", "FAMILY", "FLOWER", "FOREST", "FUTURE", "GARDEN", "GENIUS", "GUITAR", "HAPPY", "JACKET", "JUNGLE", "KITTEN", "MONKEY", "MARKET", "NATURE", "OCEAN", "ORANGE", "PALACE", "PARROT", "PENCIL", "PLANET", "PUPPY", "QUEEN", "RABBIT", "ROCKET", "SHADOW", "SILVER", "SUMMER", "TIGER", "VALLEY", "WINDOW", "WINTER", "ZEBRA"];
+    let target = "", guessed = [], wrong = 0, isOver = false, isRewinding = false, ctx = null, lastVectors = {}; 
+    
+    const kGallows = document.getElementById("gallowsSvg"), kCanvasBox = document.getElementById("canvasBox");
+    const kMsg = document.getElementById("msg"), kUsedBox = document.getElementById("usedLetters");
+    const kWordBox = document.getElementById("word"), kResetBtn = document.getElementById("newGameBtn");
+    const rnd = (min, max) => Math.random() * (max - min) + min;
+
+    function synth(fStart, fEnd, type, duration, delay = 0, vol = 0.15) {
+        if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); const t = ctx.currentTime + delay, osc = ctx.createOscillator(), gain = ctx.createGain(); osc.type = type;
+        osc.frequency.setValueAtTime(fStart, t); if (fEnd !== fStart) osc.frequency.exponentialRampToValueAtTime(fEnd, t + duration);
+        gain.gain.setValueAtTime(vol, t); gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        osc.connect(gain); gain.connect(ctx.destination); osc.start(t); osc.stop(t + duration);
+    }
+    function start() {
+        target = pool[Math.floor(Math.random() * pool.length)]; guessed = []; wrong = 0; isOver = false; isRewinding = Object.keys(lastVectors).length > 0;
+        kGallows.classList.remove("dancing"); kGallows.style.transform = "none"; kCanvasBox.className = "canvas-container"; kMsg.innerText = ""; kResetBtn.style.display = "none";
+        document.getElementById("stick-figure").style.transform = "none"; document.getElementById("g-rope").style.stroke = "#334155";
+        kUsedBox.innerText = isRewinding ? "Assembling the gallows... ⏳" : "Type letters to play!"; kUsedBox.style.color = isRewinding ? "#ef4444" : "#64748b";
+        if (isRewinding) setTimeout(() => { isRewinding = false; kUsedBox.innerText = "Go! Type letters to play!"; kUsedBox.style.color = "#64748b"; }, 3000);
+        
+        for (let i = 1; i <= 6; i++) {
+            const piece = document.getElementById(`p${i}`);
+            if (lastVectors[i]) {
+                piece.style.transition = "none"; piece.style.stroke = "#334155"; if (i === 1) piece.style.fill = "none";
+                piece.style.opacity = "0"; piece.style.transform = `translate(${lastVectors[i].x}px, ${lastVectors[i].y}px) rotate(${lastVectors[i].r}deg)`;
+                void piece.offsetWidth; piece.style.transition = "transform 3.0s cubic-bezier(0.25, 1, 0.5, 1), stroke 0.3s, opacity 4.5s ease-out"; 
+            } else { piece.style.stroke = "transparent"; piece.style.opacity = "0"; if (i === 1) piece.style.fill = "transparent"; }
+            piece.style.transform = "none";
+        }
+        updateWordDisplay();
+    }
+    window.onkeydown = (e) => { const char = e.key.toUpperCase(); if (!isOver && !isRewinding && char.length === 1 && char >= "A" && char <= "Z") play(char); };
+    function play(char) {
+        if (guessed.includes(char) || isOver || isRewinding) return; guessed.push(char);
+        kUsedBox.innerText = "USED: " + guessed.join(" ");
+        if (!target.includes(char)) {
+            wrong++; if (wrong <= 6) { const p = document.getElementById(`p${wrong}`); p.style.stroke = "#334155"; p.style.opacity = "1"; if (wrong === 1) p.style.fill = "none"; }
+            const pattern = [-8, 8, -6, 6, -3, 3, 0]; let step = 0;
+            function frame() { if (step < pattern.length) { kGallows.style.transform = `translateX(${pattern[step]}px)`; step++; requestAnimationFrame(frame); } } frame(); synth(180, 60, "sawtooth", 0.22); 
+        } else { synth(580, 580, "sine", 0.06, 0, 0.2); synth(880, 880, "sine", 0.08, 0.03, 0.15); } updateWordDisplay();
+    }
+    function updateWordDisplay() {
+        let display = "", missing = 0; for (let char of target) { if (guessed.includes(char)) display += char + " "; else { display += "_ "; missing++; } } kWordBox.innerText = display.trim();
+        if (guessed.length === 0) return;
+        if (missing === 0) {
+            isOver = true; kMsg.innerText = "You Freed Him! 🎉"; kMsg.style.color = "#16a34a"; kCanvasBox.classList.add("won-border"); document.getElementById("g-rope").style.stroke = "transparent"; kResetBtn.style.display = "block";
+            document.getElementById("p1").style.fill = "none";
+            for (let i = 1; i <= 6; i++) { const p = document.getElementById(`p${i}`); p.style.stroke = "#16a34a"; p.style.opacity = "1"; }
+            document.getElementById("stick-figure").style.transform = "translateY(15px)"; setTimeout(() => kGallows.classList.add("dancing"), 600);
+            synth(523,523,"sine",.12); synth(659,659,"sine",.12,.08); synth(784,784,"sine",.12,.16); synth(1046,1046,"sine",.38,.24,.2); lastVectors = {}; 
+        } else if (wrong >= 6) {
+            isOver = true; kResetBtn.style.display = "block"; kMsg.innerText = "Game Over! Word: " + target; kMsg.style.color = "#dc2626"; kCanvasBox.classList.add("lost-border");
+            synth(120,30,"sawtooth",.8,0,.3); synth(125,31,"square",.4,0,.25); synth(116,29,"triangle",.9,.05,.35); document.getElementById("g-rope").style.stroke = "transparent";
+            for (let i = 1; i <= 6; i++) {
+                const piece = document.getElementById(`p${i}`), vec = { x: Math.random() > 0.5 ? rnd(-150, -80) : rnd(180, 250), y: Math.random() > 0.5 ? rnd(-150, -80) : rnd(180, 250), r: rnd(-360, 360) }; lastVectors[i] = vec; 
+                piece.style.stroke = "#dc2626"; piece.style.opacity = "1"; if (i === 1) piece.style.fill = "none"; piece.style.transform = `translate(${vec.x}px, ${vec.y}px) rotate(${vec.r}deg)`;
+            }
+        }
+    }
+    start();
+</script>
+</body>
+</html>
